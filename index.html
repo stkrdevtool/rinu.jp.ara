@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>rinu短縮URL 詳細チェッカー</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      max-width: 800px;
+      margin: 40px auto;
+      padding: 20px;
+      line-height: 1.6;
+      background: #f9f9f9;
+      color: #333;
+    }
+    h1 {
+      text-align: center;
+      color: #d32f2f;
+    }
+    .container {
+      background: white;
+      padding: 30px;
+      border-radius: 12px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+    }
+    input[type="text"] {
+      width: 100%;
+      padding: 12px;
+      font-size: 16px;
+      border: 2px solid #ddd;
+      border-radius: 8px;
+      margin: 15px 0;
+      box-sizing: border-box;
+    }
+    button {
+      padding: 12px 24px;
+      font-size: 16px;
+      margin-right: 12px;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: 0.2s;
+    }
+    #checkBtn {
+      background: #d32f2f;
+      color: white;
+    }
+    #checkBtn:hover { background: #b71c1c; }
+    #pasteBtn {
+      background: #1976d2;
+      color: white;
+    }
+    #pasteBtn:hover { background: #1565c0; }
+    #loading {
+      font-weight: bold;
+      margin: 20px 0;
+      min-height: 1.5em;
+    }
+    .red_text { color: #d32f2f; }
+    #detail {
+      background: #f5f5f5;
+      padding: 20px;
+      border-radius: 8px;
+      margin-top: 20px;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+    a { color: #1976d2; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <h1>rinu短縮URL 詳細チェッカー</h1>
+
+    <p>rinu.cf / rinu.jp の短縮URLを貼り付けて「チェック」ボタンを押してください。</p>
+
+    <input type="text" id="url" placeholder="https://rinu.cf/xxxxxx または https://rinu.jp/xxxxxx を入力" autofocus>
+
+    <div>
+      <button id="checkBtn">チェック</button>
+      <button id="pasteBtn">クリップボードから貼り付け＆チェック</button>
+    </div>
+
+    <div id="loading"></div>
+    <div id="detail"></div>
+  </div>
+
+  <script>
+    /**
+     * https://www-creators.com/archives/4463#JavascriptjQueryURL
+     * Get the URL parameter value
+     *
+     * @param  name {string} パラメータのキー文字列
+     * @return  url {url} 対象のURL文字列（任意）
+     */
+    function getParam(name, url) {
+      if (!url) url = window.location.href;
+      name = name.replace(/[\[\]]/g, "\\$&");
+      var regex = new RegExp("[?&]" + name + "(=([^&#]*)|&|#|$)"),
+          results = regex.exec(url);
+      if (!results) return null;
+      if (!results[2]) return '';
+      return decodeURIComponent(results[2].replace(/\+/g, " "));
+    }
+
+    async function check() {
+      let load = document.getElementById("loading");
+      let detail = document.getElementById("detail");
+
+      load.textContent = "取得中...";
+      detail.textContent = "";
+
+      load.classList.remove("red_text");
+
+      let url = document.getElementById("url").value.trim();
+
+      // rinu.cf / rinu.jp の形式チェック
+      const rinu_regex = /^https?:\/\/rinu\.(cf|jp)\/[\w/:%#\$&\?\(\)~\.=\+\-]+$/;
+      const toku_regex = /^https?:\/\/(tokutei\.cf|tokutei\.end2end\.tech)\/\?url=[\w/:%#\$&\?\(\)~\.=\+\-]+$/;
+
+      if (!rinu_regex.test(url)) {
+        load.textContent = "rinu.cf または rinu.jp のURLを入力してください。";
+        load.classList.add("red_text");
+        return;
+      }
+
+      // URLからコード部分を抜き出す
+      let url_code = "";
+      if (url.startsWith("https")) {
+        url_code = url.substring(16); // https://rinu.cf/ の後ろ
+      } else {
+        url_code = url.substring(15); // http://rinu.cf/ の後ろ
+      }
+
+      try {
+        let dat = await (await fetch(`https://api.activetk.jp/urlmin/get&code=${url_code}`)).json();
+
+        console.log(`Send Code: ${url_code}`);
+        console.log(dat);
+
+        let go_url = "http://example.com/";
+
+        if (dat["status"] !== "OK") {
+          load.textContent = "エラー";
+          load.classList.add("red_text");
+
+          if (dat["type"] == 404) {
+            detail.textContent = "URLが存在しません。もう一度お確かめの上、再試行してください。(404)";
+          } else {
+            detail.textContent = `申し訳ございません。予期せぬエラーが発生しました。(${dat["type"]})`;
+          }
+          return;
+        }
+
+        // 特定ツール判定
+        if (toku_regex.test(dat["LinkURL"])) {
+          load.textContent = "特定ツール有";
+          load.classList.add("red_text");
+          go_url = getParam("url", dat["LinkURL"]);
+        } else {
+          load.textContent = "特定ツールなし";
+          go_url = dat["LinkURL"];
+        }
+
+        const last_use_ip = dat["LastUsed"].substring(11);
+
+        // IPinfoで作成者IPの詳細取得
+        let ipinfo = await (await fetch(`https://ipinfo.io/${dat["CreatorInfo"]["IPAddress"]}/json`)).json();
+
+        detail.innerHTML = `
+          <strong>詳細情報</strong><br><br>
+          作成者IPアドレス: <a href="${dat["CreatorInfo"]["MoreInformation"]}" target="_blank">${dat["CreatorInfo"]["IPAddress"]}</a><br>
+          作成者タイムゾーン: ${dat["CreatorInfo"]["TimeZone"]}<br>
+          IPからわかる場所: ${dat["CreatorInfo"]["Location"]}<br>
+          郵便番号: ${ipinfo["postal"] || "不明"}<br>
+          ASN: ${ipinfo["org"] || "不明"}<br><br>
+          <strong>遷移先URL:</strong> <a href="${go_url}" target="_blank">${decodeURIComponent(go_url)}</a><br>
+          作成日: ${dat["CreatedDateTime"]}<br>
+          使用回数: ${dat["UsedCount"]}<br>
+          最後に使用したユーザーのIPアドレス: <a href="https://ipinfo.io/${last_use_ip}" target="_blank">${last_use_ip}</a>
+        `;
+
+      } catch (err) {
+        load.textContent = "通信エラー";
+        load.classList.add("red_text");
+        detail.textContent = "サーバーとの通信に失敗しました。\nインターネット接続を確認してください。\n\n詳細: " + err.message;
+      }
+    }
+
+    // クリップボードから貼り付け＆即チェック
+    async function paste() {
+      try {
+        const text = await navigator.clipboard.readText();
+        document.getElementById("url").value = text.trim();
+        check();
+      } catch (err) {
+        document.getElementById("loading").textContent = "クリップボードの読み取りに失敗しました";
+        document.getElementById("loading").classList.add("red_text");
+      }
+    }
+
+    // イベントリスナー
+    document.getElementById("checkBtn").addEventListener("click", check);
+    document.getElementById("pasteBtn").addEventListener("click", paste);
+
+    // Enterキーでもチェック
+    document.getElementById("url").addEventListener("keypress", (e) => {
+      if (e.key === "Enter") check();
+    });
+  </script>
+</body>
+</html>
